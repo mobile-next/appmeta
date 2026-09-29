@@ -26,6 +26,7 @@ func goldenFixtures() []goldenFixture {
 		{"apk-acme-shop", buildAcmeShopAPK},
 		{"apk-adaptive-icon", buildAdaptiveIconAPK},
 		{"ipa-acme-shop", buildAcmeShopIPA},
+		{"ipa-simulator", buildSimulatorIPA},
 	}
 }
 

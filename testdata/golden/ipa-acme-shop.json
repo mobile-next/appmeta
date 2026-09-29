@@ -9,14 +9,20 @@
   "minOsVersion": "15.0",
   "targetOsVersion": "17.2",
   "isSimulator": false,
-  "isDebuggable": false,
+  "isDebuggable": true,
   "deviceFamilies": [
     "phone",
     "tablet"
   ],
-  "architectures": [],
+  "architectures": [
+    "arm64"
+  ],
   "permissions": [],
-  "signing": null,
+  "signing": {
+    "type": "development",
+    "teamId": "ACME123456",
+    "expiresAt": "2027-03-01T12:00:00Z"
+  },
   "icon": {
     "contentType": "image/png",
     "width": 180,

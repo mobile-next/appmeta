@@ -142,11 +142,31 @@ func writePNGChunk(w *bytes.Buffer, typ string, body []byte) {
 	_ = binary.Write(w, binary.BigEndian, crc.Sum32())
 }
 
-// buildAcmeShopIPA is a typical device build with CgBI icons at two scales.
+func acmeDeviceExecutable() zipEntry {
+	return zipEntry{name: "AcmeShop", data: fatMachO(thinMachO(cpuARM64, 0, platformIOS))}
+}
+
+// buildAcmeShopIPA is a typical development build: arm64 executable,
+// development profile and CgBI icons at two scales.
 func buildAcmeShopIPA(t testing.TB) []byte {
 	return buildIPA(t, binaryPlist(t, acmeInfoPlist(nil)),
+		acmeDeviceExecutable(),
+		zipEntry{name: "embedded.mobileprovision", data: developmentProfile(t)},
 		zipEntry{name: "AppIcon60x60@2x.png", data: cgbiPNG(t, solidImage(120, 120, acmeGreen))},
 		zipEntry{name: "AppIcon60x60@3x.png", data: cgbiPNG(t, solidImage(180, 180, acmeRed))},
+		zipEntry{name: "Assets.car", data: []byte("car")},
+	)
+}
+
+// buildSimulatorIPA is a zipped simulator build: XML plist, universal
+// simulator executable, no profile, icon only in Assets.car.
+func buildSimulatorIPA(t testing.TB) []byte {
+	plist := acmeInfoPlist(map[string]any{"DTPlatformName": "iphonesimulator", "UIDeviceFamily": []int{1}})
+	return buildIPA(t, xmlPlist(t, plist),
+		zipEntry{name: "AcmeShop", data: fatMachO(
+			thinMachO(cpuX86_64, 3, platformIOSSimulator),
+			thinMachO(cpuARM64, 0, platformIOSSimulator),
+		)},
 		zipEntry{name: "Assets.car", data: []byte("car")},
 	)
 }

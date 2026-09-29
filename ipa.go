@@ -61,8 +61,49 @@ func parseIPA(a *archive) (*Info, error) {
 		IsSimulator:     strings.Contains(strings.ToLower(plistString(plist, "DTPlatformName")), "simulator"),
 		DeviceFamilies:  deviceFamilies(plist),
 	}
+	sniffExecutable(a, bundle, plistString(plist, "CFBundleExecutable"), info)
+	readProvisioningProfile(a, bundle, info)
 	extractIPAIcon(a, bundle, plist, info)
 	return info, nil
+}
+
+// sniffExecutable prefers the Mach-O platform over DTPlatformName, which is
+// only what Xcode wrote into Info.plist.
+func sniffExecutable(a *archive, bundle, executable string, info *Info) {
+	if executable == "" {
+		info.Warnings = append(info.Warnings, "architectures unknown: Info.plist has no CFBundleExecutable")
+		return
+	}
+	data, err := a.readPrefix(bundle+executable, machOPrefixLen)
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("architectures unknown: %v", err))
+		return
+	}
+	summary, err := sniffMachO(data)
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("architectures unknown: %s: %v", executable, err))
+		return
+	}
+	info.Architectures = summary.architectures
+	if summary.hasPlatform {
+		info.IsSimulator = summary.isSimulator
+	}
+}
+
+// readProvisioningProfile leaves signing null when there is no profile, as
+// for simulator builds and App Store downloads.
+func readProvisioningProfile(a *archive, bundle string, info *Info) {
+	path := bundle + "embedded.mobileprovision"
+	if !a.has(path) {
+		return
+	}
+	data, err := a.read(path)
+	if err == nil {
+		info.Signing, info.IsDebuggable, err = parseProvisioningProfile(data, a.limits.MaxDepth)
+	}
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("signing unknown: embedded.mobileprovision: %v", err))
+	}
 }
 
 func firstNonEmpty(values ...string) string {
