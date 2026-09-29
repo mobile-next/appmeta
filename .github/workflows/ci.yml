@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [FuzzAXML, FuzzResourceTable, FuzzPlist, FuzzIcon, FuzzMachO, FuzzParse]
+        target: [FuzzAXML, FuzzAPKSigning, FuzzResourceTable, FuzzPlist, FuzzIcon, FuzzMachO, FuzzParse]
     steps:
       - uses: actions/checkout@v5
         with:
