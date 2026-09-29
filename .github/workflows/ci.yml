@@ -3,7 +3,9 @@ name: ci
 on:
   push:
     branches:
-      - main
+      - "**"
+    tags:
+      - "v*.*.*"
   pull_request:
 
 permissions:
@@ -66,3 +68,31 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 60s -fuzzminimizetime 5s .
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [lint, test, vulncheck]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check the tag is vMAJOR.MINOR.PATCH
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release tag format: $GITHUB_REF_NAME"
+            exit 1
+          fi
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk -v version="${GITHUB_REF_NAME#v}" '/^## \[/{f = ($0 ~ "^## \\[" version "\\]")} f' CHANGELOG.md > release-notes.md
+          if [[ ! -s release-notes.md ]]; then
+            echo "::error::CHANGELOG.md has no section for ${GITHUB_REF_NAME#v}"
+            exit 1
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Version ${{ github.ref_name }}
+          body_path: release-notes.md
