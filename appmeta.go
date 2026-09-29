@@ -82,12 +82,17 @@ func Parse(r io.ReaderAt, size int64, opts ...Option) (info *Info, err error) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	return parse(r, size, cfg.limits)
+}
 
-	a, err := openArchive(r, size, cfg.limits)
+// parse is Parse without the panic recovery, so fuzzing sees panics.
+func parse(r io.ReaderAt, size int64, limits Limits) (*Info, error) {
+	a, err := openArchive(r, size, limits)
 	if err != nil {
 		return nil, err
 	}
 
+	var info *Info
 	switch {
 	case a.has(androidManifestPath):
 		info, err = parseAPK(a)
