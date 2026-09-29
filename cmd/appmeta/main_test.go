@@ -73,6 +73,19 @@ func (closedPipe) Write([]byte) (int, error) {
 	return 0, errClosedPipe
 }
 
+func TestTheVersionFlagPrintsTheVersionWithoutAPath(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommand(&out)
+	cmd.SetArgs([]string{"--version"})
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "appmeta version "+version+"\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func runCommand(t *testing.T, args ...string) error {
 	t.Helper()
 	var out bytes.Buffer
@@ -101,6 +114,7 @@ func writeZipWithOneFile(t *testing.T, path, name string) {
 func TestThereAreNoShortFlagsExceptHelp(t *testing.T) {
 	cmd := newRootCommand(&bytes.Buffer{})
 	cmd.InitDefaultHelpFlag()
+	cmd.InitDefaultVersionFlag()
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if f.Shorthand != "" && f.Name != "help" {
 			t.Errorf("--%s has short form -%s", f.Name, f.Shorthand)
