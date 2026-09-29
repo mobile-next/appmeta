@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "format": "ipa",
+  "platform": "ios",
+  "bundleId": "com.acme.shop",
+  "name": "Acme Shop",
+  "version": "4.2.0",
+  "buildNumber": "4201",
+  "minOsVersion": "15.0",
+  "targetOsVersion": "17.2",
+  "isSimulator": false,
+  "isDebuggable": true,
+  "deviceFamilies": [
+    "phone",
+    "tablet"
+  ],
+  "architectures": [
+    "arm64"
+  ],
+  "permissions": [],
+  "signing": {
+    "type": "development",
+    "teamId": "ACME123456",
+    "expiresAt": "2027-03-01T12:00:00Z"
+  },
+  "icon": {
+    "contentType": "image/png",
+    "width": 180,
+    "height": 180,
+    "sha256": ""
+  },
+  "warnings": []
+}

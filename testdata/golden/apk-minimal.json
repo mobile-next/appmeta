@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "format": "apk",
+  "platform": "android",
+  "bundleId": "com.acme.minimal",
+  "name": "Minimal",
+  "version": "4.2.0",
+  "buildNumber": "4201",
+  "minOsVersion": "8.0",
+  "targetOsVersion": "15",
+  "isSimulator": false,
+  "isDebuggable": false,
+  "deviceFamilies": [
+    "phone",
+    "tablet"
+  ],
+  "architectures": [],
+  "permissions": [],
+  "signing": null,
+  "icon": null,
+  "warnings": []
+}
