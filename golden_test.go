@@ -21,7 +21,9 @@ type goldenFixture struct {
 // goldenFixtures lists every synthetic app whose full output is pinned in
 // testdata/golden/<name>.json.
 func goldenFixtures() []goldenFixture {
-	return nil
+	return []goldenFixture{
+		{"apk-minimal", buildMinimalAPK},
+	}
 }
 
 func TestEveryFixtureMatchesItsGoldenFileAndTheSchema(t *testing.T) {
