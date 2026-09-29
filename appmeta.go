@@ -5,12 +5,12 @@
 // range requests or S3 ranged GETs. Input is treated as hostile: every read is
 // bounded by Limits and Parse never lets a panic escape.
 //
-// Parse takes no context. Callers that need a deadline should pass a ReaderAt
-// that fails once their context is done; the limits bound the CPU work done
-// between reads.
+// ParseContext stops when its context is done; the limits bound the CPU work
+// done between reads.
 package appmeta
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -69,20 +69,60 @@ var (
 )
 
 // Parse extracts metadata from the APK or IPA of the given size read through r.
-func Parse(r io.ReaderAt, size int64, opts ...Option) (info *Info, err error) {
-	// The host must survive any input, so a parser bug becomes an error.
-	defer func() {
-		if p := recover(); p != nil {
-			info = nil
-			err = fmt.Errorf("appmeta: internal error: %v", p)
-		}
-	}()
+func Parse(r io.ReaderAt, size int64, opts ...Option) (*Info, error) {
+	return ParseContext(context.Background(), r, size, opts...)
+}
 
+// parseResult carries the outcome of the parsing goroutine.
+type parseResult struct {
+	info *Info
+	err  error
+}
+
+// ParseContext is Parse that gives up when ctx is done. Every read from r
+// checks ctx first; a read that blocks is abandoned and the call returns at
+// once, while the parsing goroutine exits when that read returns.
+func ParseContext(ctx context.Context, r io.ReaderAt, size int64, opts ...Option) (*Info, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("appmeta: %w", err)
+	}
 	cfg := config{limits: DefaultLimits()}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	return parse(r, size, cfg.limits)
+
+	done := make(chan parseResult, 1)
+	go func() {
+		// The host must survive any input, so a parser bug becomes an error.
+		defer func() {
+			if p := recover(); p != nil {
+				done <- parseResult{err: fmt.Errorf("appmeta: internal error: %v", p)}
+			}
+		}()
+		info, err := parse(contextReaderAt{ctx: ctx, r: r}, size, cfg.limits)
+		done <- parseResult{info: info, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		return res.info, res.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("appmeta: %w", ctx.Err())
+	}
+}
+
+// contextReaderAt fails reads once ctx is done, which stops parsing between
+// zip entries and inside decompression loops.
+type contextReaderAt struct {
+	ctx context.Context
+	r   io.ReaderAt
+}
+
+func (c contextReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, fmt.Errorf("appmeta: %w", err)
+	}
+	return c.r.ReadAt(p, off)
 }
 
 // parse is Parse without the panic recovery, so fuzzing sees panics.

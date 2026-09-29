@@ -19,7 +19,8 @@ info, err := appmeta.Parse(f, st.Size())
 // info.BundleID, info.Version, info.Icon.PNG, ...
 ```
 
-`Parse(r io.ReaderAt, size int64, opts ...Option) (*Info, error)`. Tighten
+`Parse(r io.ReaderAt, size int64, opts ...Option) (*Info, error)`, or
+`ParseContext(ctx, r, size, opts...)` to stop when a context is done. Tighten
 limits with `appmeta.WithLimits(appmeta.Limits{...})`; zero fields keep their
 defaults. The JSON shape is documented in
 [`schema/appmeta.schema.json`](schema/appmeta.schema.json).

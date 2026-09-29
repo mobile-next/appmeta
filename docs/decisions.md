@@ -48,8 +48,10 @@ fat slices.
 `Parse` recovers panics into errors. The fuzz targets call the inner parsers,
 so a panic still fails fuzzing.
 
-There is no context/deadline parameter (the PRD signature has none). A host
-that needs a deadline passes a ReaderAt that fails once its context is done.
+`ParseContext` checks its context before every read from the input and
+returns as soon as the context is done, even if a read is blocked. The
+parsing goroutine is left to exit once that read returns. `Parse` is
+`ParseContext` with `context.Background()`.
 
 ## Toolchain
 
