@@ -37,7 +37,7 @@ func newRootCommand(out io.Writer) *cobra.Command {
 			return run(out, args[0], opts)
 		},
 	}
-	cmd.Flags().StringVarP(&opts.iconPath, "icon", "o", "", "also write the icon PNG to this file")
+	cmd.Flags().StringVar(&opts.iconPath, "icon", "", "also write the icon PNG to this file")
 	cmd.Flags().BoolVar(&opts.noIcon, "no-icon", false, "omit the base64 icon from the JSON")
 	return cmd
 }

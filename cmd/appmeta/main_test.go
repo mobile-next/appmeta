@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/mobile-next/appmeta"
 )
 
@@ -77,4 +79,14 @@ func writeZipWithOneFile(t *testing.T, path, name string) {
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestThereAreNoShortFlagsExceptHelp(t *testing.T) {
+	cmd := newRootCommand(&bytes.Buffer{})
+	cmd.InitDefaultHelpFlag()
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Shorthand != "" && f.Name != "help" {
+			t.Errorf("--%s has short form -%s", f.Name, f.Shorthand)
+		}
+	})
 }

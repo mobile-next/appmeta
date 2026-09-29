@@ -30,7 +30,7 @@ defaults. The JSON shape is documented in
 go install github.com/mobile-next/appmeta/cmd/appmeta@latest
 appmeta app.ipa                 # JSON on stdout
 appmeta --no-icon app.apk       # omit the base64 icon
-appmeta -o icon.png app.apk     # also write the icon (--icon)
+appmeta --icon icon.png app.apk # also write the icon
 ```
 
 On failure it prints `{"error": "..."}` and exits non-zero.
