@@ -32,6 +32,8 @@ type imageCodec struct {
 // registered with package image, so the host's image registry is untouched.
 func codecFor(data []byte) (imageCodec, error) {
 	switch {
+	case bytes.HasPrefix(data, pngSignature) && isCgBI(data):
+		return imageCodec{decode: decodeCgBI, decodeConfig: decodeCgBIConfig}, nil
 	case bytes.HasPrefix(data, pngSignature):
 		return imageCodec{
 			decode:       func(b []byte) (image.Image, error) { return png.Decode(bytes.NewReader(b)) },
@@ -64,7 +66,7 @@ func imageSize(data []byte) (int, int, error) {
 	return cfg.Width, cfg.Height, nil
 }
 
-// encodeIcon decodes a PNG, JPEG or WebP and re-encodes
+// encodeIcon decodes a PNG (standard or CgBI), JPEG or WebP and re-encodes
 // it as a PNG no larger than MaxIconSize, so the host only ever serves
 // images appmeta produced.
 func encodeIcon(data []byte, maxPixels int) (*Icon, error) {

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "format": "ipa",
+  "platform": "ios",
+  "bundleId": "com.acme.shop",
+  "name": "Acme Shop",
+  "version": "4.2.0",
+  "buildNumber": "4201",
+  "minOsVersion": "15.0",
+  "targetOsVersion": "17.2",
+  "isSimulator": false,
+  "isDebuggable": false,
+  "deviceFamilies": [
+    "phone",
+    "tablet"
+  ],
+  "architectures": [],
+  "permissions": [],
+  "signing": null,
+  "icon": {
+    "contentType": "image/png",
+    "width": 180,
+    "height": 180,
+    "sha256": ""
+  },
+  "warnings": []
+}
