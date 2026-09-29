@@ -1,5 +1,8 @@
 .PHONY: all test lint fmt vulncheck
 
+all:
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o appmeta ./cmd/appmeta
+
 lint:
 	$(shell go env GOPATH)/bin/golangci-lint run
 
@@ -10,6 +13,5 @@ fmt:
 test:
 	go test -race ./...
 
-vulncheck:
-	go build -o appmeta ./cmd/appmeta
+vulncheck: all
 	$(shell go env GOPATH)/bin/govulncheck -mode=binary ./appmeta
