@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "format": "ipa",
+  "platform": "ios",
+  "bundleId": "com.acme.shop",
+  "name": "Acme Shop",
+  "version": "4.2.0",
+  "buildNumber": "4201",
+  "minOsVersion": "15.0",
+  "targetOsVersion": "17.2",
+  "isSimulator": true,
+  "isDebuggable": false,
+  "deviceFamilies": [
+    "phone"
+  ],
+  "architectures": [
+    "x86_64",
+    "arm64"
+  ],
+  "permissions": [],
+  "signing": null,
+  "icon": null,
+  "warnings": [
+    "icon not extracted: it is only in Assets.car"
+  ]
+}
