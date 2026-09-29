@@ -85,6 +85,9 @@ func parseAPK(a *archive) (*Info, error) {
 		info.Name = m.packageName
 	}
 	extractAPKIcon(res, m.icon, info)
+	if info.Signing, err = apkSigning(a); err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("signing unknown: %v", err))
+	}
 	return info, nil
 }
 

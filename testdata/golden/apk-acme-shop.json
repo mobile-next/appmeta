@@ -22,7 +22,11 @@
     "android.permission.CAMERA",
     "android.permission.INTERNET"
   ],
-  "signing": null,
+  "signing": {
+    "type": "release",
+    "teamId": "",
+    "expiresAt": null
+  },
   "icon": {
     "contentType": "image/png",
     "width": 192,

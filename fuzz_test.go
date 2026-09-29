@@ -71,11 +71,22 @@ func FuzzMachO(f *testing.F) {
 
 func FuzzParse(f *testing.F) {
 	f.Add(buildMinimalAPK(f))
+	f.Add(buildAcmeShopAPK(f))
 	f.Add(buildAdaptiveIconAPK(f))
 	f.Add(buildAcmeShopIPA(f))
 	f.Add(buildSimulatorIPA(f))
 	limits := Limits{MaxEntries: 1000, MaxEntrySize: 1 << 20, MaxTotalSize: 4 << 20, MaxDepth: 32, MaxIconPixels: 256 * 256}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = parse(bytes.NewReader(data), int64(len(data)), limits)
+	})
+}
+
+func FuzzAPKSigning(f *testing.F) {
+	block := signingBlock(signingPair{id: signingBlockV2ID, value: v2SignerValue(selfSignedCertificate(f, androidDebugSubject))})
+	f.Add(block[signingBlockLenLen : len(block)-signingBlockFooterLen])
+	f.Add(pkcs7WithCertificate(f, selfSignedCertificate(f, acmeReleaseSubject)))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = certificateFromSigningPairs(data)
+		_, _ = pkcs7FirstCertificate(data)
 	})
 }

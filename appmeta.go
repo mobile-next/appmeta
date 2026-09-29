@@ -43,9 +43,13 @@ type Info struct {
 	Warnings        []string `json:"warnings"`
 }
 
-// Signing describes the provisioning profile an iOS app was signed with.
+// Signing describes how an app is signed. For iOS it summarises the
+// provisioning profile; for Android it tells debug-key builds from release
+// builds, and TeamID and ExpiresAt are empty.
 type Signing struct {
-	Type      string     `json:"type"` // "development", "ad-hoc", "enterprise" or "app-store"
+	// "development", "ad-hoc", "enterprise" or "app-store" on iOS;
+	// "debug" or "release" on Android.
+	Type      string     `json:"type"`
 	TeamID    string     `json:"teamId"`
 	ExpiresAt *time.Time `json:"expiresAt"`
 }

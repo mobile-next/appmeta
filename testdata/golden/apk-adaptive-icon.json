@@ -16,7 +16,11 @@
   ],
   "architectures": [],
   "permissions": [],
-  "signing": null,
+  "signing": {
+    "type": "debug",
+    "teamId": "",
+    "expiresAt": null
+  },
   "icon": {
     "contentType": "image/png",
     "width": 108,

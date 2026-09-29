@@ -64,7 +64,7 @@
       "items": { "type": "string" }
     },
     "signing": {
-      "description": "iOS provisioning profile summary; null for Android and for unsigned or simulator builds.",
+      "description": "How the app is signed; null when it is unsigned (or, on iOS, has no provisioning profile). Android: \"debug\" when signed with the Android debug key (CN=Android Debug, O=Android, C=US), else \"release\"; teamId is empty and expiresAt null. iOS: the provisioning profile's type, team id and expiry. Signatures are not verified.",
       "oneOf": [
         { "type": "null" },
         {
@@ -72,7 +72,7 @@
           "additionalProperties": false,
           "required": ["type", "teamId", "expiresAt"],
           "properties": {
-            "type": { "enum": ["development", "ad-hoc", "enterprise", "app-store"] },
+            "type": { "enum": ["development", "ad-hoc", "enterprise", "app-store", "debug", "release"] },
             "teamId": { "type": "string" },
             "expiresAt": {
               "oneOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }]

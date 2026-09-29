@@ -79,9 +79,14 @@ func acmeShopManifest() xmlNode {
 	)
 }
 
-// buildAcmeShopAPK is a typical release APK: resource label, icons at two
-// densities plus an adaptive icon, permissions and two ABIs.
+// buildAcmeShopAPK is a typical release APK: v2-signed with a release key,
+// resource label, icons at two densities plus an adaptive icon, permissions
+// and two ABIs.
 func buildAcmeShopAPK(t testing.TB) []byte {
+	return signWithV2(t, buildUnsignedAcmeShopAPK(t), acmeReleaseSubject)
+}
+
+func buildUnsignedAcmeShopAPK(t testing.TB) []byte {
 	return buildAPKWithManifest(t, acmeShopManifest(),
 		zipEntry{name: androidResourcesPath, data: encodeResourceTable(acmeShopResources())},
 		zipEntry{name: "res/mipmap-mdpi/ic_launcher.png", data: solidPNG(t, 48, 48, acmeGreen)},
@@ -94,7 +99,7 @@ func buildAcmeShopAPK(t testing.TB) []byte {
 }
 
 // buildAdaptiveIconAPK has only an adaptive icon, as apps with minSdk 26
-// often do.
+// often do, and an old-style v1 signature with the debug key.
 func buildAdaptiveIconAPK(t testing.TB) []byte {
 	resources := []resEntry{
 		{typeName: "mipmap", entry: 0, values: []resTestValue{
@@ -112,6 +117,7 @@ func buildAdaptiveIconAPK(t testing.TB) []byte {
 		zipEntry{name: androidResourcesPath, data: encodeResourceTable(resources)},
 		zipEntry{name: "res/mipmap-anydpi-v26/ic_launcher.xml", data: adaptiveIconXML()},
 		zipEntry{name: "res/drawable/ic_launcher_foreground.png", data: solidPNG(t, 108, 108, acmeBlue)},
+		zipEntry{name: "META-INF/CERT.RSA", data: pkcs7WithCertificate(t, selfSignedCertificate(t, androidDebugSubject))},
 	)
 }
 
