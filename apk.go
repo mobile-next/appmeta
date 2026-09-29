@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-const androidManifestPath = "AndroidManifest.xml"
+const (
+	androidManifestPath  = "AndroidManifest.xml"
+	androidResourcesPath = "resources.arsc"
+)
 
 // Android framework attribute ids (android.R.attr).
 const (
@@ -20,6 +23,7 @@ const (
 	attrVersionName      = 0x0101021c
 	attrTargetSDKVersion = 0x01010270
 	attrRequired         = 0x0101028e
+	attrDrawable         = 0x01010199
 )
 
 // androidReleases maps API levels to the release users know them by.
@@ -74,12 +78,55 @@ func parseAPK(a *archive) (*Info, error) {
 		Architectures:   androidABIs(a),
 		Permissions:     m.permissions,
 	}
-	info.Version = m.versionName.text()
-	info.Name = m.label.text()
+	res := &apkResources{archive: a}
+	info.Version = res.text(m.versionName, "android:versionName", info)
+	info.Name = res.text(m.label, "android:label", info)
 	if info.Name == "" {
 		info.Name = m.packageName
 	}
+	extractAPKIcon(res, m.icon, info)
 	return info, nil
+}
+
+// apkResources loads resources.arsc on first use; most manifests of simple
+// apps need no lookups.
+type apkResources struct {
+	archive *archive
+	table   *resourceTable
+	err     error
+	loaded  bool
+}
+
+func (r *apkResources) get() (*resourceTable, error) {
+	if !r.loaded {
+		r.loaded = true
+		data, err := r.archive.read(androidResourcesPath)
+		if err == nil {
+			r.table, err = parseResourceTable(data)
+		}
+		if err != nil {
+			r.err = fmt.Errorf("%s: %w", androidResourcesPath, err)
+		}
+	}
+	return r.table, r.err
+}
+
+// text returns an attribute's text, resolving references. Failures become
+// warnings: the rest of the metadata is still useful.
+func (r *apkResources) text(attr xmlAttr, field string, info *Info) string {
+	if !attr.isReference() {
+		return attr.text()
+	}
+	table, err := r.get()
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("%s %s not resolved: %v", field, formatResID(attr.data), err))
+		return ""
+	}
+	s, ok := table.resolveText(attr.data)
+	if !ok {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("%s %s not found in %s", field, formatResID(attr.data), androidResourcesPath))
+	}
+	return s
 }
 
 func parseManifest(data []byte, maxDepth int) (*apkManifest, error) {
@@ -124,6 +171,111 @@ func parseManifest(data []byte, maxDepth int) (*apkManifest, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func extractAPKIcon(res *apkResources, attr xmlAttr, info *Info) {
+	if !attr.isReference() {
+		return
+	}
+	table, err := res.get()
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("icon not extracted: %v", err))
+		return
+	}
+	files := table.resolveFiles(attr.data)
+	icon, err := firstDecodableRaster(res.archive, files)
+	if icon != nil {
+		info.Icon = icon
+		return
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.path, ".xml") {
+			continue
+		}
+		foreground, ok := adaptiveIconForeground(res.archive, f.path)
+		if !ok {
+			continue
+		}
+		if icon, _ := firstDecodableRaster(res.archive, table.resolveFiles(foreground)); icon != nil {
+			info.Icon = icon
+			info.Warnings = append(info.Warnings, "adaptive icon rendered from foreground layer only")
+			return
+		}
+	}
+	if err != nil {
+		info.Warnings = append(info.Warnings, fmt.Sprintf("icon not extracted: %v", err))
+		return
+	}
+	info.Warnings = append(info.Warnings, "icon not extracted: no raster image found (vector drawables are not rendered)")
+}
+
+// firstDecodableRaster tries raster files from the highest density down.
+func firstDecodableRaster(a *archive, files []resourceFile) (*Icon, error) {
+	var rasters []resourceFile
+	for _, f := range files {
+		if isRasterPath(f.path) {
+			rasters = append(rasters, f)
+		}
+	}
+	slices.SortStableFunc(rasters, func(x, y resourceFile) int {
+		return densityRank(y.density) - densityRank(x.density)
+	})
+	var lastErr error
+	for _, f := range rasters {
+		data, err := a.read(f.path)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		icon, err := encodeIcon(data, a.limits.MaxIconPixels)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", f.path, err)
+			continue
+		}
+		return icon, nil
+	}
+	return nil, lastErr
+}
+
+func isRasterPath(path string) bool {
+	for _, ext := range []string{".png", ".webp", ".jpg", ".jpeg"} {
+		if strings.HasSuffix(strings.ToLower(path), ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// densityRank orders densities for icon choice: the default configuration
+// counts as mdpi, and nodpi as the lowest.
+func densityRank(density uint16) int {
+	switch density {
+	case 0:
+		return densityMedium
+	case densityNone, densityAny:
+		return 0
+	}
+	return int(density)
+}
+
+// adaptiveIconForeground returns the drawable of an adaptive icon's
+// foreground layer, which may sit on the element or on a nested one such as
+// <inset>.
+func adaptiveIconForeground(a *archive, path string) (uint32, bool) {
+	data, err := a.read(path)
+	if err != nil {
+		return 0, false
+	}
+	var found uint32
+	err = parseAXML(data, a.limits.MaxDepth, func(p []string, attrs []xmlAttr) {
+		if found != 0 || len(p) < 2 || p[0] != "adaptive-icon" || p[1] != "foreground" {
+			return
+		}
+		if d, ok := findAttr(attrs, attrDrawable, "drawable"); ok && d.isReference() {
+			found = d.data
+		}
+	})
+	return found, err == nil && found != 0
 }
 
 // androidRelease maps an SDK attribute to a release name. Preview builds use

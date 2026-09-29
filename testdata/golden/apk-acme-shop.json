@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "format": "apk",
+  "platform": "android",
+  "bundleId": "com.acme.shop",
+  "name": "Acme Shop",
+  "version": "4.2.0",
+  "buildNumber": "4201",
+  "minOsVersion": "8.0",
+  "targetOsVersion": "15",
+  "isSimulator": false,
+  "isDebuggable": false,
+  "deviceFamilies": [
+    "phone",
+    "tablet"
+  ],
+  "architectures": [
+    "arm64-v8a",
+    "armeabi-v7a"
+  ],
+  "permissions": [
+    "android.permission.CAMERA",
+    "android.permission.INTERNET"
+  ],
+  "signing": null,
+  "icon": {
+    "contentType": "image/png",
+    "width": 192,
+    "height": 192,
+    "sha256": ""
+  },
+  "warnings": []
+}

@@ -23,6 +23,8 @@ type goldenFixture struct {
 func goldenFixtures() []goldenFixture {
 	return []goldenFixture{
 		{"apk-minimal", buildMinimalAPK},
+		{"apk-acme-shop", buildAcmeShopAPK},
+		{"apk-adaptive-icon", buildAdaptiveIconAPK},
 	}
 }
 
