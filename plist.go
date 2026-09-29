@@ -24,21 +24,21 @@ const (
 
 var (
 	bplistMagic       = []byte("bplist")
-	errMalformedPlist = errors.New("appmeta: malformed plist")
+	errMalformedPlist = fmt.Errorf("%w: plist", ErrMalformed)
 )
 
 // decodePlist decodes a property list into a dictionary. howett.net/plist
 // recurses per nesting level, so depth is checked first, iteratively, to keep
 // hostile nesting off the goroutine stack. Input that is not binary goes to
-// its XML parser and, if that fails, to its text parser, so both nestings
-// are checked.
+// its XML parser and, unless the document is an XML plist, on to its text
+// parser, so both nestings are checked.
 func decodePlist(data []byte, maxDepth int) (map[string]any, error) {
 	var err error
 	if bytes.HasPrefix(data, bplistMagic) {
 		err = checkBinaryPlistDepth(data, maxDepth)
 	} else {
 		err = checkXMLDepth(data, maxDepth)
-		if err == nil {
+		if err == nil && !isXMLPlist(data) {
 			err = checkBracketDepth(data, maxDepth)
 		}
 	}
@@ -50,6 +50,22 @@ func decodePlist(data []byte, maxDepth int) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: %v", errMalformedPlist, err)
 	}
 	return dict, nil
+}
+
+// isXMLPlist reports whether the first XML element is <plist>. From there on
+// howett.net/plist reports failures as XML errors; it only hands the input to
+// its text parser when the XML fails before or at the first element.
+func isXMLPlist(data []byte) bool {
+	d := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return false
+		}
+		if element, ok := tok.(xml.StartElement); ok {
+			return element.Name.Local == "plist"
+		}
+	}
 }
 
 func checkXMLDepth(data []byte, maxDepth int) error {

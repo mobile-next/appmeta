@@ -20,7 +20,8 @@ type options struct {
 func main() {
 	cmd := newRootCommand(os.Stdout)
 	if err := cmd.Execute(); err != nil {
-		printJSON(os.Stdout, map[string]string{"error": err.Error()})
+		// Nothing is left to report to if stdout itself is what failed.
+		_ = printJSON(os.Stdout, map[string]string{"error": err.Error()})
 		os.Exit(1)
 	}
 }
@@ -67,12 +68,11 @@ func run(out io.Writer, path string, opts options) error {
 	if opts.noIcon && info.Icon != nil {
 		info.Icon.PNG = nil
 	}
-	printJSON(out, info)
-	return nil
+	return printJSON(out, info)
 }
 
-func printJSON(out io.Writer, v any) {
+func printJSON(out io.Writer, v any) error {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+	return enc.Encode(v)
 }

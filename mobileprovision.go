@@ -50,11 +50,11 @@ func parseProvisioningProfile(data []byte, maxDepth int) (*Signing, bool, error)
 func profileType(profile map[string]any, getTaskAllow bool) string {
 	switch {
 	case plistBool(profile, "ProvisionsAllDevices"):
-		return "enterprise"
+		return SigningEnterprise
 	case len(plistStrings(profile, "ProvisionedDevices")) > 0 && getTaskAllow:
-		return "development"
+		return SigningDevelopment
 	case len(plistStrings(profile, "ProvisionedDevices")) > 0:
-		return "ad-hoc"
+		return SigningAdHoc
 	}
-	return "app-store"
+	return SigningAppStore
 }

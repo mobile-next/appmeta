@@ -21,12 +21,30 @@ import (
 // backwards-incompatible changes to schema/appmeta.schema.json.
 const SchemaVersion = 1
 
+// Values of Info.Format and Info.Platform.
+const (
+	FormatAPK       = "apk"
+	FormatIPA       = "ipa"
+	PlatformAndroid = "android"
+	PlatformIOS     = "ios"
+)
+
+// Values of Signing.Type: the first four on iOS, the last two on Android.
+const (
+	SigningDevelopment = "development"
+	SigningAdHoc       = "ad-hoc"
+	SigningEnterprise  = "enterprise"
+	SigningAppStore    = "app-store"
+	SigningDebug       = "debug"
+	SigningRelease     = "release"
+)
+
 // Info is the metadata of one app binary. String fields are empty when the
 // binary does not declare them.
 type Info struct {
 	SchemaVersion   int      `json:"schemaVersion"`
-	Format          string   `json:"format"`   // "apk" or "ipa"
-	Platform        string   `json:"platform"` // "android" or "ios"
+	Format          string   `json:"format"`   // FormatAPK or FormatIPA
+	Platform        string   `json:"platform"` // PlatformAndroid or PlatformIOS
 	BundleID        string   `json:"bundleId"`
 	Name            string   `json:"name"`
 	Version         string   `json:"version"`
@@ -47,8 +65,7 @@ type Info struct {
 // provisioning profile; for Android it tells debug-key builds from release
 // builds, and TeamID and ExpiresAt are empty.
 type Signing struct {
-	// "development", "ad-hoc", "enterprise" or "app-store" on iOS;
-	// "debug" or "release" on Android.
+	// One of the Signing constants.
 	Type      string     `json:"type"`
 	TeamID    string     `json:"teamId"`
 	ExpiresAt *time.Time `json:"expiresAt"`
@@ -70,6 +87,9 @@ var (
 	ErrUnsupportedFormat = errors.New("appmeta: not an apk or ipa")
 	// ErrLimitExceeded is returned when the input exceeds one of the Limits.
 	ErrLimitExceeded = errors.New("appmeta: limit exceeded")
+	// ErrMalformed is returned for an APK or IPA whose contents cannot be
+	// parsed. Errors that are none of these three come from reading the input.
+	ErrMalformed = errors.New("appmeta: malformed input")
 )
 
 // Parse extracts metadata from the APK or IPA of the given size read through r.
@@ -109,6 +129,10 @@ func ParseContext(ctx context.Context, r io.ReaderAt, size int64, opts ...Option
 
 	select {
 	case res := <-done:
+		// Reads refused after ctx was done leave the metadata incomplete.
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("appmeta: %w", err)
+		}
 		return res.info, res.err
 	case <-ctx.Done():
 		return nil, fmt.Errorf("appmeta: %w", ctx.Err())
@@ -145,12 +169,26 @@ func parse(r io.ReaderAt, size int64, limits Limits) (*Info, error) {
 	default:
 		return nil, ErrUnsupportedFormat
 	}
+	// Metadata read through a failing input is incomplete, whatever was
+	// parsed from it.
+	if failure := a.r.failure(); failure != nil {
+		return nil, failure
+	}
 	if err != nil {
 		return nil, err
 	}
 	info.SchemaVersion = SchemaVersion
 	fillEmptyLists(info)
 	return info, nil
+}
+
+// appendWarning adds the warning unless it is empty, which is how the
+// extractors say that nothing went wrong.
+func appendWarning(warnings []string, warning string) []string {
+	if warning == "" {
+		return warnings
+	}
+	return append(warnings, warning)
 }
 
 // fillEmptyLists makes lists encode as [] rather than null, so consumers do

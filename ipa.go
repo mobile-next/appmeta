@@ -50,8 +50,8 @@ func parseIPA(a *archive) (*Info, error) {
 	}
 
 	info := &Info{
-		Format:          "ipa",
-		Platform:        "ios",
+		Format:          FormatIPA,
+		Platform:        PlatformIOS,
 		BundleID:        bundleID,
 		Name:            firstNonEmpty(plistString(plist, "CFBundleDisplayName"), plistString(plist, "CFBundleName"), bundleID),
 		Version:         plistString(plist, "CFBundleShortVersionString"),
@@ -61,49 +61,51 @@ func parseIPA(a *archive) (*Info, error) {
 		IsSimulator:     strings.Contains(strings.ToLower(plistString(plist, "DTPlatformName")), "simulator"),
 		DeviceFamilies:  deviceFamilies(plist),
 	}
-	sniffExecutable(a, bundle, plistString(plist, "CFBundleExecutable"), info)
-	readProvisioningProfile(a, bundle, info)
-	extractIPAIcon(a, bundle, plist, info)
+	executable, warning := sniffExecutable(a, bundle, plistString(plist, "CFBundleExecutable"))
+	info.Warnings = appendWarning(info.Warnings, warning)
+	info.Architectures = executable.architectures
+	// The Mach-O platform wins over DTPlatformName, which is only what Xcode
+	// wrote into Info.plist.
+	if executable.hasPlatform {
+		info.IsSimulator = executable.isSimulator
+	}
+	info.Signing, info.IsDebuggable, warning = readProvisioningProfile(a, bundle)
+	info.Warnings = appendWarning(info.Warnings, warning)
+	info.Icon, warning = extractIPAIcon(a, bundle, plist)
+	info.Warnings = appendWarning(info.Warnings, warning)
 	return info, nil
 }
 
-// sniffExecutable prefers the Mach-O platform over DTPlatformName, which is
-// only what Xcode wrote into Info.plist.
-func sniffExecutable(a *archive, bundle, executable string, info *Info) {
+func sniffExecutable(a *archive, bundle, executable string) (machOSummary, string) {
 	if executable == "" {
-		info.Warnings = append(info.Warnings, "architectures unknown: Info.plist has no CFBundleExecutable")
-		return
+		return machOSummary{}, "architectures unknown: Info.plist has no CFBundleExecutable"
 	}
 	data, err := a.readPrefix(bundle+executable, machOPrefixLen)
 	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("architectures unknown: %v", err))
-		return
+		return machOSummary{}, fmt.Sprintf("architectures unknown: %v", err)
 	}
 	summary, err := sniffMachO(data)
 	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("architectures unknown: %s: %v", executable, err))
-		return
+		return machOSummary{}, fmt.Sprintf("architectures unknown: %s: %v", executable, err)
 	}
-	info.Architectures = summary.architectures
-	if summary.hasPlatform {
-		info.IsSimulator = summary.isSimulator
-	}
+	return summary, ""
 }
 
-// readProvisioningProfile leaves signing null when there is no profile, as
+// readProvisioningProfile returns no signing when there is no profile, as
 // for simulator builds and App Store downloads.
-func readProvisioningProfile(a *archive, bundle string, info *Info) {
+func readProvisioningProfile(a *archive, bundle string) (signing *Signing, isDebuggable bool, warning string) {
 	path := bundle + "embedded.mobileprovision"
 	if !a.has(path) {
-		return
+		return nil, false, ""
 	}
 	data, err := a.read(path)
 	if err == nil {
-		info.Signing, info.IsDebuggable, err = parseProvisioningProfile(data, a.limits.MaxDepth)
+		signing, isDebuggable, err = parseProvisioningProfile(data, a.limits.MaxDepth)
 	}
 	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("signing unknown: embedded.mobileprovision: %v", err))
+		return nil, false, fmt.Sprintf("signing unknown: embedded.mobileprovision: %v", err)
 	}
+	return signing, isDebuggable, ""
 }
 
 func firstNonEmpty(values ...string) string {
@@ -129,35 +131,39 @@ func deviceFamilies(plist map[string]any) []string {
 	return families
 }
 
-func extractIPAIcon(a *archive, bundle string, plist map[string]any, info *Info) {
-	var best string
+func extractIPAIcon(a *archive, bundle string, plist map[string]any) (*Icon, string) {
+	path, data := largestIconFile(a, iconCandidates(a, bundle, iconBaseNames(plist)))
+	if path == "" {
+		primary := plistDict(plistDict(plist, "CFBundleIcons"), "CFBundlePrimaryIcon")
+		if a.has(bundle+"Assets.car") || plistString(primary, "CFBundleIconName") != "" {
+			return nil, "icon not extracted: it is only in Assets.car"
+		}
+		return nil, "icon not extracted: no icon file found"
+	}
+	icon, err := encodeIcon(data, a.limits.MaxIconPixels)
+	if err != nil {
+		return nil, fmt.Sprintf("icon not extracted: %s: %v", strings.TrimPrefix(path, bundle), err)
+	}
+	return icon, ""
+}
+
+// largestIconFile returns the path and content of the candidate with the
+// most pixels, or an empty path when none is a readable image.
+func largestIconFile(a *archive, candidates []string) (string, []byte) {
+	var bestPath string
+	var bestData []byte
 	bestArea := 0
-	for _, path := range iconCandidates(a, bundle, iconBaseNames(plist)) {
+	for _, path := range candidates {
 		data, err := a.read(path)
 		if err != nil {
 			continue
 		}
 		w, h, err := imageSize(data)
 		if err == nil && w*h > bestArea {
-			best, bestArea = path, w*h
+			bestPath, bestData, bestArea = path, data, w*h
 		}
 	}
-	if best == "" {
-		primary := plistDict(plistDict(plist, "CFBundleIcons"), "CFBundlePrimaryIcon")
-		if a.has(bundle+"Assets.car") || plistString(primary, "CFBundleIconName") != "" {
-			info.Warnings = append(info.Warnings, "icon not extracted: it is only in Assets.car")
-			return
-		}
-		info.Warnings = append(info.Warnings, "icon not extracted: no icon file found")
-		return
-	}
-	data, err := a.read(best)
-	if err == nil {
-		info.Icon, err = encodeIcon(data, a.limits.MaxIconPixels)
-	}
-	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("icon not extracted: %s: %v", strings.TrimPrefix(best, bundle), err))
-	}
+	return bestPath, bestData
 }
 
 // iconBaseNames lists icon names from every place Info.plist declares them.

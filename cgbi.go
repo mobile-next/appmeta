@@ -22,7 +22,7 @@ const (
 	pngColorRGBA     = 6
 )
 
-var errMalformedCgBI = errors.New("appmeta: malformed CgBI png")
+var errMalformedCgBI = fmt.Errorf("%w: CgBI png", ErrMalformed)
 
 func isCgBI(data []byte) bool {
 	rest := data[len(pngSignature):]

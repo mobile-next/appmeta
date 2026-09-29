@@ -49,11 +49,28 @@ func TestExactlyOnePathIsRequired(t *testing.T) {
 
 func TestErrorsArePrintedAsJSON(t *testing.T) {
 	var out bytes.Buffer
-	printJSON(&out, map[string]string{"error": "boom"})
+	if err := printJSON(&out, map[string]string{"error": "boom"}); err != nil {
+		t.Fatal(err)
+	}
 	var got map[string]string
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil || got["error"] != "boom" {
 		t.Fatalf("got %q, %v", out.String(), err)
 	}
+}
+
+func TestAFailedWriteOfTheOutputIsAnError(t *testing.T) {
+	err := printJSON(closedPipe{}, map[string]string{"name": "Acme"})
+	if !errors.Is(err, errClosedPipe) {
+		t.Fatalf("got %v, want the write error", err)
+	}
+}
+
+var errClosedPipe = errors.New("closed pipe")
+
+type closedPipe struct{}
+
+func (closedPipe) Write([]byte) (int, error) {
+	return 0, errClosedPipe
 }
 
 func runCommand(t *testing.T, args ...string) error {

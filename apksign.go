@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,7 +25,7 @@ const (
 
 var (
 	signingBlockMagic   = []byte("APK Sig Block 42")
-	errMalformedSigning = errors.New("appmeta: malformed apk signature")
+	errMalformedSigning = fmt.Errorf("%w: apk signature", ErrMalformed)
 	// Newest scheme first: v3.1 and v3 may rotate to a new key, v2 cannot.
 	signingSchemes = []uint32{signingBlockV31ID, signingBlockV3ID, signingBlockV2ID}
 )
@@ -55,9 +54,9 @@ func apkSigning(a *archive) (*Signing, error) {
 func signingTypeOf(cert *x509.Certificate) string {
 	subject := cert.Subject
 	if subject.CommonName == "Android Debug" && slices.Contains(subject.Organization, "Android") && slices.Contains(subject.Country, "US") {
-		return "debug"
+		return SigningDebug
 	}
-	return "release"
+	return SigningRelease
 }
 
 // signingBlockCertificate finds the APK Signing Block that sits right before
@@ -67,7 +66,7 @@ func signingBlockCertificate(a *archive) ([]byte, error) {
 	if cdOffset < signingBlockFooterLen+signingBlockLenLen {
 		return nil, nil
 	}
-	footer, err := readAt(a.r, int64(cdOffset-signingBlockFooterLen), signingBlockFooterLen)
+	footer, err := a.readRange(cdOffset-signingBlockFooterLen, signingBlockFooterLen)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +78,7 @@ func signingBlockCertificate(a *archive) ([]byte, error) {
 	if size < signingBlockFooterLen || size > cdOffset-signingBlockLenLen || size > uint64(a.limits.MaxEntrySize) {
 		return nil, fmt.Errorf("%w: signing block of %d bytes", errMalformedSigning, size)
 	}
-	block, err := readAt(a.r, int64(cdOffset-size-signingBlockLenLen), int64(size+signingBlockLenLen))
+	block, err := a.readRange(cdOffset-size-signingBlockLenLen, size+signingBlockLenLen)
 	if err != nil {
 		return nil, err
 	}

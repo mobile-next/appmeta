@@ -2,7 +2,6 @@ package appmeta
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"unicode/utf16"
 )
@@ -31,7 +30,7 @@ const (
 	resValueTypeBool       = 0x12
 )
 
-var errMalformedResource = errors.New("appmeta: malformed android resource")
+var errMalformedResource = fmt.Errorf("%w: android resource", ErrMalformed)
 
 var le = binary.LittleEndian
 

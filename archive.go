@@ -16,6 +16,7 @@ const (
 	zip64LocatorLen       = 20
 	zip64EOCDLen          = 56
 	zip16BitEntryCountMax = 0xFFFF
+	zip32BitSizeMax       = 0xFFFFFFFF
 	zip32BitOffsetMax     = 0xFFFFFFFF
 )
 
@@ -28,14 +29,48 @@ var (
 // archive gives bounded access to the entries of a zip. Entry names are only
 // ever used as map keys, never as filesystem paths.
 type archive struct {
-	r         io.ReaderAt
+	r         *failureRecordingReader
+	size      int64
 	directory zipDirectory
 	files     map[string]*zip.File
 	limits    Limits
 	totalRead int64
 }
 
-func openArchive(r io.ReaderAt, size int64, limits Limits) (*archive, error) {
+// failureRecordingReader remembers the first failure of the input, so that a
+// broken transport fails the parse instead of passing for a malformed app.
+// Reading past the end is not a failure: hostile offsets cause it too.
+type failureRecordingReader struct {
+	r   io.ReaderAt
+	err error
+}
+
+func (f *failureRecordingReader) ReadAt(p []byte, off int64) (int, error) {
+	n, err := f.r.ReadAt(p, off)
+	if err != nil && !errors.Is(err, io.EOF) && f.err == nil {
+		f.err = err
+	}
+	return n, err
+}
+
+// failure returns the first read failure of the input, or nil.
+func (f *failureRecordingReader) failure() error {
+	if f.err == nil {
+		return nil
+	}
+	return fmt.Errorf("appmeta: reading input: %w", f.err)
+}
+
+func openArchive(input io.ReaderAt, size int64, limits Limits) (*archive, error) {
+	r := &failureRecordingReader{r: input}
+	a, err := readArchive(r, size, limits)
+	if failure := r.failure(); failure != nil {
+		return nil, failure
+	}
+	return a, err
+}
+
+func readArchive(r *failureRecordingReader, size int64, limits Limits) (*archive, error) {
 	dir, err := readZipDirectory(r, size)
 	if err != nil {
 		return nil, err
@@ -50,6 +85,11 @@ func openArchive(r io.ReaderAt, size int64, limits Limits) (*archive, error) {
 	if err != nil && !errors.Is(err, zip.ErrInsecurePath) {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
 	}
+	// The declared count is only a hint to archive/zip, which reads entries
+	// until the directory ends.
+	if len(zr.File) > limits.MaxEntries {
+		return nil, fmt.Errorf("%w: archive has %d entries, max %d", ErrLimitExceeded, len(zr.File), limits.MaxEntries)
+	}
 
 	files := make(map[string]*zip.File, len(zr.File))
 	for _, f := range zr.File {
@@ -58,7 +98,7 @@ func openArchive(r io.ReaderAt, size int64, limits Limits) (*archive, error) {
 			files[f.Name] = f
 		}
 	}
-	return &archive{r: r, directory: dir, files: files, limits: limits}, nil
+	return &archive{r: r, size: size, directory: dir, files: files, limits: limits}, nil
 }
 
 // zipDirectory is what the end of central directory record declares.
@@ -68,7 +108,7 @@ type zipDirectory struct {
 }
 
 // readZipDirectory reads the end of central directory record, following the
-// zip64 locator when a 16- or 32-bit field overflows.
+// zip64 locator when a 16- or 32-bit field overflows, as archive/zip does.
 func readZipDirectory(r io.ReaderAt, size int64) (zipDirectory, error) {
 	tailLen := min(size, eocdLen+maxZipCommentLen)
 	if tailLen < eocdLen {
@@ -86,11 +126,17 @@ func readZipDirectory(r io.ReaderAt, size int64) (zipDirectory, error) {
 		entries: uint64(binary.LittleEndian.Uint16(tail[i+10:])),
 		offset:  uint64(binary.LittleEndian.Uint32(tail[i+16:])),
 	}
-	if dir.entries != zip16BitEntryCountMax && dir.offset != zip32BitOffsetMax {
+	directorySize := binary.LittleEndian.Uint32(tail[i+12:])
+	if dir.entries != zip16BitEntryCountMax && directorySize != zip32BitSizeMax && dir.offset != zip32BitOffsetMax {
 		return dir, nil
 	}
+	return readZip64Directory(r, size, size-tailLen+int64(i), dir)
+}
 
-	locatorOffset := size - tailLen + int64(i) - zip64LocatorLen
+// readZip64Directory returns the 32-bit directory when no zip64 locator sits
+// right before the end of central directory record at eocdOffset.
+func readZip64Directory(r io.ReaderAt, size, eocdOffset int64, dir zipDirectory) (zipDirectory, error) {
+	locatorOffset := eocdOffset - zip64LocatorLen
 	if locatorOffset < 0 {
 		return dir, nil
 	}
@@ -102,7 +148,7 @@ func readZipDirectory(r io.ReaderAt, size int64) (zipDirectory, error) {
 		return dir, nil
 	}
 	recordOffset := binary.LittleEndian.Uint64(locator[8:])
-	if recordOffset > uint64(size-zip64EOCDLen) {
+	if size < zip64EOCDLen || recordOffset > uint64(size-zip64EOCDLen) {
 		return zipDirectory{}, fmt.Errorf("%w: zip64 record out of bounds", ErrUnsupportedFormat)
 	}
 	record, err := readAt(r, int64(recordOffset), zip64EOCDLen)
@@ -128,6 +174,19 @@ func readAt(r io.ReaderAt, off, n int64) ([]byte, error) {
 		err = io.ErrUnexpectedEOF
 	}
 	return nil, err
+}
+
+// readRange returns n bytes that sit outside the zip entries. They count
+// towards MaxTotalSize like entry data does.
+func (a *archive) readRange(off, n uint64) ([]byte, error) {
+	if off > uint64(a.size) || n > uint64(a.size)-off {
+		return nil, io.ErrUnexpectedEOF
+	}
+	if int64(n) > a.limits.MaxTotalSize-a.totalRead {
+		return nil, fmt.Errorf("%w: reading %d bytes at offset %d", ErrLimitExceeded, n, off)
+	}
+	a.totalRead += int64(n)
+	return readAt(a.r, int64(off), int64(n))
 }
 
 func (a *archive) has(name string) bool {

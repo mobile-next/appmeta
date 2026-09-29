@@ -51,6 +51,8 @@ type apkManifest struct {
 	debuggable  bool
 	permissions []string
 	features    []apkFeature
+	// seenPermissions keeps the deduplication of permissions linear.
+	seenPermissions map[string]struct{}
 }
 
 func parseAPK(a *archive) (*Info, error) {
@@ -67,8 +69,8 @@ func parseAPK(a *archive) (*Info, error) {
 	}
 
 	info := &Info{
-		Format:          "apk",
-		Platform:        "android",
+		Format:          FormatAPK,
+		Platform:        PlatformAndroid,
 		BundleID:        m.packageName,
 		BuildNumber:     m.versionCode,
 		MinOSVersion:    androidRelease(m.minSDK),
@@ -79,12 +81,16 @@ func parseAPK(a *archive) (*Info, error) {
 		Permissions:     m.permissions,
 	}
 	res := &apkResources{archive: a}
-	info.Version = res.text(m.versionName, "android:versionName", info)
-	info.Name = res.text(m.label, "android:label", info)
+	var warning string
+	info.Version, warning = res.text(m.versionName, "android:versionName")
+	info.Warnings = appendWarning(info.Warnings, warning)
+	info.Name, warning = res.text(m.label, "android:label")
+	info.Warnings = appendWarning(info.Warnings, warning)
 	if info.Name == "" {
 		info.Name = m.packageName
 	}
-	extractAPKIcon(res, m.icon, info)
+	info.Icon, warning = extractAPKIcon(res, m.icon)
+	info.Warnings = appendWarning(info.Warnings, warning)
 	if info.Signing, err = apkSigning(a); err != nil {
 		info.Warnings = append(info.Warnings, fmt.Sprintf("signing unknown: %v", err))
 	}
@@ -103,113 +109,146 @@ type apkResources struct {
 func (r *apkResources) get() (*resourceTable, error) {
 	if !r.loaded {
 		r.loaded = true
-		data, err := r.archive.read(androidResourcesPath)
-		if err == nil {
-			r.table, err = parseResourceTable(data)
-		}
-		if err != nil {
-			r.err = fmt.Errorf("%s: %w", androidResourcesPath, err)
-		}
+		r.table, r.err = r.load()
 	}
 	return r.table, r.err
 }
 
+func (r *apkResources) load() (*resourceTable, error) {
+	data, err := r.archive.read(androidResourcesPath)
+	if err != nil {
+		return nil, err
+	}
+	table, err := parseResourceTable(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", androidResourcesPath, err)
+	}
+	return table, nil
+}
+
 // text returns an attribute's text, resolving references. Failures become
-// warnings: the rest of the metadata is still useful.
-func (r *apkResources) text(attr xmlAttr, field string, info *Info) string {
+// a warning: the rest of the metadata is still useful.
+func (r *apkResources) text(attr xmlAttr, field string) (text, warning string) {
 	if !attr.isReference() {
-		return attr.text()
+		return attr.text(), ""
 	}
 	table, err := r.get()
 	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("%s %s not resolved: %v", field, formatResID(attr.data), err))
-		return ""
+		return "", fmt.Sprintf("%s %s not resolved: %v", field, formatResID(attr.data), err)
 	}
 	s, ok := table.resolveText(attr.data)
 	if !ok {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("%s %s not found in %s", field, formatResID(attr.data), androidResourcesPath))
+		return "", fmt.Sprintf("%s %s not found in %s", field, formatResID(attr.data), androidResourcesPath)
 	}
-	return s
+	return s, ""
 }
 
 func parseManifest(data []byte, maxDepth int) (*apkManifest, error) {
-	m := &apkManifest{}
-	err := parseAXML(data, maxDepth, func(path []string, attrs []xmlAttr) {
-		switch {
-		case pathIs(path, "manifest"):
-			if a, ok := findAttr(attrs, 0, "package"); ok {
-				m.packageName = a.text()
-			}
-			if a, ok := findAttr(attrs, attrVersionCode, "versionCode"); ok {
-				m.versionCode = a.text()
-			}
-			m.versionName, _ = findAttr(attrs, attrVersionName, "versionName")
-		case pathIs(path, "manifest", "uses-sdk"):
-			m.minSDK, _ = findAttr(attrs, attrMinSDKVersion, "minSdkVersion")
-			m.targetSDK, _ = findAttr(attrs, attrTargetSDKVersion, "targetSdkVersion")
-		case pathIs(path, "manifest", "application"):
-			m.label, _ = findAttr(attrs, attrLabel, "label")
-			m.icon, _ = findAttr(attrs, attrIcon, "icon")
-			if a, ok := findAttr(attrs, attrDebuggable, "debuggable"); ok {
-				m.debuggable = a.valueType == resValueTypeBool && a.data != 0
-			}
-		case pathIs(path, "manifest", "uses-permission"),
-			pathIs(path, "manifest", "uses-permission-sdk-23"),
-			pathIs(path, "manifest", "uses-permission-sdk-m"):
-			if a, ok := findAttr(attrs, attrName, "name"); ok && a.text() != "" && !slices.Contains(m.permissions, a.text()) {
-				m.permissions = append(m.permissions, a.text())
-			}
-		case pathIs(path, "manifest", "uses-feature"):
-			feature := apkFeature{required: true}
-			if a, ok := findAttr(attrs, attrName, "name"); ok {
-				feature.name = a.text()
-			}
-			if a, ok := findAttr(attrs, attrRequired, "required"); ok && a.valueType == resValueTypeBool {
-				feature.required = a.data != 0
-			}
-			m.features = append(m.features, feature)
-		}
-	})
-	if err != nil {
+	m := &apkManifest{seenPermissions: map[string]struct{}{}}
+	if err := parseAXML(data, maxDepth, m.readElement); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func extractAPKIcon(res *apkResources, attr xmlAttr, info *Info) {
-	if !attr.isReference() {
+func (m *apkManifest) readElement(path []string, attrs []xmlAttr) {
+	switch {
+	case pathIs(path, "manifest"):
+		m.readPackage(attrs)
+	case pathIs(path, "manifest", "uses-sdk"):
+		m.minSDK, _ = findAttr(attrs, attrMinSDKVersion, "minSdkVersion")
+		m.targetSDK, _ = findAttr(attrs, attrTargetSDKVersion, "targetSdkVersion")
+	case pathIs(path, "manifest", "application"):
+		m.readApplication(attrs)
+	case pathIs(path, "manifest", "uses-permission"),
+		pathIs(path, "manifest", "uses-permission-sdk-23"),
+		pathIs(path, "manifest", "uses-permission-sdk-m"):
+		m.addPermission(attrs)
+	case pathIs(path, "manifest", "uses-feature"):
+		m.addFeature(attrs)
+	}
+}
+
+func (m *apkManifest) readPackage(attrs []xmlAttr) {
+	if a, ok := findAttr(attrs, 0, "package"); ok {
+		m.packageName = a.text()
+	}
+	if a, ok := findAttr(attrs, attrVersionCode, "versionCode"); ok {
+		m.versionCode = a.text()
+	}
+	m.versionName, _ = findAttr(attrs, attrVersionName, "versionName")
+}
+
+func (m *apkManifest) readApplication(attrs []xmlAttr) {
+	m.label, _ = findAttr(attrs, attrLabel, "label")
+	m.icon, _ = findAttr(attrs, attrIcon, "icon")
+	if a, ok := findAttr(attrs, attrDebuggable, "debuggable"); ok {
+		m.debuggable = a.valueType == resValueTypeBool && a.data != 0
+	}
+}
+
+func (m *apkManifest) addPermission(attrs []xmlAttr) {
+	a, ok := findAttr(attrs, attrName, "name")
+	if !ok || a.text() == "" {
 		return
+	}
+	if _, seen := m.seenPermissions[a.text()]; seen {
+		return
+	}
+	m.seenPermissions[a.text()] = struct{}{}
+	m.permissions = append(m.permissions, a.text())
+}
+
+func (m *apkManifest) addFeature(attrs []xmlAttr) {
+	feature := apkFeature{required: true}
+	if a, ok := findAttr(attrs, attrName, "name"); ok {
+		feature.name = a.text()
+	}
+	if a, ok := findAttr(attrs, attrRequired, "required"); ok && a.valueType == resValueTypeBool {
+		feature.required = a.data != 0
+	}
+	m.features = append(m.features, feature)
+}
+
+// extractAPKIcon returns the icon, a warning, or for an adaptive icon both.
+func extractAPKIcon(res *apkResources, attr xmlAttr) (*Icon, string) {
+	if !attr.isReference() {
+		return nil, ""
 	}
 	table, err := res.get()
 	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("icon not extracted: %v", err))
-		return
+		return nil, fmt.Sprintf("icon not extracted: %v", err)
 	}
 	files := table.resolveFiles(attr.data)
 	icon, err := firstDecodableRaster(res.archive, files)
 	if icon != nil {
-		info.Icon = icon
-		return
+		return icon, ""
 	}
+	if icon := adaptiveIconForegroundRaster(res.archive, table, files); icon != nil {
+		return icon, "adaptive icon rendered from foreground layer only"
+	}
+	if err != nil {
+		return nil, fmt.Sprintf("icon not extracted: %v", err)
+	}
+	return nil, "icon not extracted: no raster image found (vector drawables are not rendered)"
+}
+
+// adaptiveIconForegroundRaster returns nil when none of the files is an
+// adaptive icon with a raster foreground.
+func adaptiveIconForegroundRaster(a *archive, table *resourceTable, files []resourceFile) *Icon {
 	for _, f := range files {
 		if !strings.HasSuffix(f.path, ".xml") {
 			continue
 		}
-		foreground, ok := adaptiveIconForeground(res.archive, f.path)
+		foreground, ok := adaptiveIconForeground(a, f.path)
 		if !ok {
 			continue
 		}
-		if icon, _ := firstDecodableRaster(res.archive, table.resolveFiles(foreground)); icon != nil {
-			info.Icon = icon
-			info.Warnings = append(info.Warnings, "adaptive icon rendered from foreground layer only")
-			return
+		if icon, _ := firstDecodableRaster(a, table.resolveFiles(foreground)); icon != nil {
+			return icon
 		}
 	}
-	if err != nil {
-		info.Warnings = append(info.Warnings, fmt.Sprintf("icon not extracted: %v", err))
-		return
-	}
-	info.Warnings = append(info.Warnings, "icon not extracted: no raster image found (vector drawables are not rendered)")
+	return nil
 }
 
 // firstDecodableRaster tries raster files from the highest density down.
