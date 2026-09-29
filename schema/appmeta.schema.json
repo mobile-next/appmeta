@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mobile-next/appmeta/schema/appmeta.schema.json",
+  "title": "appmeta output",
+  "description": "Metadata extracted from an Android .apk or iOS .ipa. String fields are empty when the binary does not declare them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "format", "platform", "bundleId", "name", "version", "buildNumber",
+    "minOsVersion", "targetOsVersion", "isSimulator", "isDebuggable", "deviceFamilies",
+    "architectures", "permissions", "signing", "icon", "warnings"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "format": { "enum": ["apk", "ipa"] },
+    "platform": { "enum": ["android", "ios"] },
+    "bundleId": {
+      "description": "Android package name or iOS CFBundleIdentifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "User-visible app name: the default-locale android:label, or CFBundleDisplayName / CFBundleName.",
+      "type": "string"
+    },
+    "version": {
+      "description": "android:versionName or CFBundleShortVersionString.",
+      "type": "string"
+    },
+    "buildNumber": {
+      "description": "android:versionCode or CFBundleVersion.",
+      "type": "string"
+    },
+    "minOsVersion": {
+      "description": "Minimum OS release, e.g. \"8.0\" (Android API 26 mapped to its release) or \"15.0\" (MinimumOSVersion). Unknown future Android API levels are reported as \"API <n>\".",
+      "type": "string"
+    },
+    "targetOsVersion": {
+      "description": "Android targetSdkVersion mapped to a release, or the iOS SDK the app was built with (DTPlatformVersion).",
+      "type": "string"
+    },
+    "isSimulator": {
+      "description": "True for iOS builds that run only on the simulator. Always false for Android.",
+      "type": "boolean"
+    },
+    "isDebuggable": {
+      "description": "android:debuggable, or get-task-allow in the iOS provisioning profile.",
+      "type": "boolean"
+    },
+    "deviceFamilies": {
+      "type": "array",
+      "items": { "enum": ["phone", "tablet", "tv", "watch", "car", "vision"] },
+      "uniqueItems": true
+    },
+    "architectures": {
+      "description": "Android ABIs from lib/ (empty for pure-Java apps), or Mach-O architectures of the iOS executable.",
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "permissions": {
+      "description": "Android uses-permission names. Always empty for iOS.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "signing": {
+      "description": "iOS provisioning profile summary; null for Android and for unsigned or simulator builds.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "teamId", "expiresAt"],
+          "properties": {
+            "type": { "enum": ["development", "ad-hoc", "enterprise", "app-store"] },
+            "teamId": { "type": "string" },
+            "expiresAt": {
+              "oneOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }]
+            }
+          }
+        }
+      ]
+    },
+    "icon": {
+      "description": "App icon re-encoded as PNG, at most 512x512. Null when no raster icon could be extracted; a warning says why.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contentType", "width", "height", "sha256"],
+          "properties": {
+            "contentType": { "const": "image/png" },
+            "width": { "type": "integer", "minimum": 1, "maximum": 512 },
+            "height": { "type": "integer", "minimum": 1, "maximum": 512 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "base64": {
+              "description": "The PNG bytes. Omitted when the caller asked for no icon data.",
+              "type": "string",
+              "contentEncoding": "base64",
+              "contentMediaType": "image/png"
+            }
+          }
+        }
+      ]
+    },
+    "warnings": {
+      "description": "Human-readable notes about data that could not be extracted.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
