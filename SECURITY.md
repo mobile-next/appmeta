@@ -11,7 +11,7 @@ Only the latest release receives security fixes.
 
 Please do not open a public issue. Report privately through
 [GitHub private vulnerability reporting](https://github.com/mobile-next/appmeta/security/advisories/new),
-or join our Slack at http://mobilenexthq.com/join-slack and DM the moderators.
+or join our Slack at http://mobilenext.ai/join-slack and DM the moderators.
 
 Include the smallest input that reproduces the problem. We will respond as
 quickly as possible.
