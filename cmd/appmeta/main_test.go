@@ -4,25 +4,44 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mobile-next/appmeta"
 )
 
-func TestTheCLIPrintsAnErrorForAFileThatIsNotAnApp(t *testing.T) {
+func TestAFileThatIsNotAnAppIsReportedAsUnsupported(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.zip")
 	writeZipWithOneFile(t, path, "notes.txt")
-	var out bytes.Buffer
-	err := run(&out, path, "", false)
-	if err == nil {
+	err := runCommand(t, path)
+	if !errors.Is(err, appmeta.ErrUnsupportedFormat) {
+		t.Fatalf("got %v, want ErrUnsupportedFormat", err)
+	}
+}
+
+func TestAMissingFileIsAnError(t *testing.T) {
+	if err := runCommand(t, filepath.Join(t.TempDir(), "missing.apk")); err == nil {
 		t.Fatal("want an error")
 	}
 }
 
-func TestTheCLIFailsForAMissingFile(t *testing.T) {
-	var out bytes.Buffer
-	if err := run(&out, filepath.Join(t.TempDir(), "missing.apk"), "", false); err == nil {
-		t.Fatal("want an error")
+func TestLongFlagsAreAccepted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.zip")
+	writeZipWithOneFile(t, path, "notes.txt")
+	err := runCommand(t, "--no-icon", "--icon", filepath.Join(t.TempDir(), "icon.png"), path)
+	if !errors.Is(err, appmeta.ErrUnsupportedFormat) {
+		t.Fatalf("flags were not parsed: %v", err)
+	}
+}
+
+func TestExactlyOnePathIsRequired(t *testing.T) {
+	if err := runCommand(t); err == nil {
+		t.Fatal("want an error without a path")
+	}
+	if err := runCommand(t, "a.apk", "b.apk"); err == nil {
+		t.Fatal("want an error with two paths")
 	}
 }
 
@@ -33,6 +52,16 @@ func TestErrorsArePrintedAsJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil || got["error"] != "boom" {
 		t.Fatalf("got %q, %v", out.String(), err)
 	}
+}
+
+func runCommand(t *testing.T, args ...string) error {
+	t.Helper()
+	var out bytes.Buffer
+	cmd := newRootCommand(&out)
+	cmd.SetArgs(args)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	return cmd.Execute()
 }
 
 func writeZipWithOneFile(t *testing.T, path, name string) {

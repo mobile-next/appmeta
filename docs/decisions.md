@@ -11,6 +11,7 @@
 | Mach-O | stdlib `debug/macho`, `github.com/blacktop/go-macho` (MIT) | BSD-3 / MIT | active | **Not used.** Both expect random access to the whole file, and `debug/macho` reads the symbol table eagerly. appmeta only has a decompressed prefix of a zip entry and needs just the fat header and the load commands, so `macho.go` reads those itself (~150 lines). |
 | WebP decode, resizing | `golang.org/x/image` (`webp`, `draw`) | BSD-3-Clause | Go team | **Used.** |
 | CgBI PNG | none found maintained | — | — | Own implementation (`cgbi.go`): chunk walk, raw inflate bounded by width×height, PNG unfilter, BGRA→RGBA, un-premultiply. |
+| CLI flags | `github.com/spf13/cobra` | Apache-2.0 | active | **Used in `cmd/appmeta` only**, matching the backend CLI; the library does not import it. |
 | JSON Schema validation (tests only) | `github.com/santhosh-tekuri/jsonschema/v6` | Apache-2.0 | active | **Used in tests** so the golden outputs are checked against `schema/appmeta.schema.json`. |
 
 ## Fixtures are synthetic
