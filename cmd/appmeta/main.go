@@ -12,6 +12,9 @@ import (
 	"github.com/mobile-next/appmeta"
 )
 
+// version is the release version; the release workflow sets it with -ldflags.
+var version = "dev"
+
 type options struct {
 	iconPath string
 	noIcon   bool
@@ -31,6 +34,7 @@ func newRootCommand(out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "appmeta [flags] <app.apk|app.ipa>",
 		Short:         "Print the metadata of an Android or iOS app as JSON",
+		Version:       version,
 		Args:          cobra.ExactArgs(1),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -39,6 +43,8 @@ func newRootCommand(out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.iconPath, "icon", "", "also write the icon PNG to this file")
+	// Declared here so that cobra does not add it with a short form.
+	cmd.Flags().Bool("version", false, "print the version")
 	cmd.Flags().BoolVar(&opts.noIcon, "no-icon", false, "omit the base64 icon from the JSON")
 	return cmd
 }

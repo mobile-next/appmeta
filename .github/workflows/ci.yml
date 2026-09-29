@@ -85,6 +85,22 @@ jobs:
             echo "::error::Invalid release tag format: $GITHUB_REF_NAME"
             exit 1
           fi
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the CLI for macOS and Linux
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            os="${platform%-*}"
+            arch="${platform#*-}"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w -X main.version=$version" -o appmeta ./cmd/appmeta
+            zip -9 "appmeta-$version-${os/darwin/macos}-$arch.zip" appmeta
+            rm appmeta
+          done
+          ls -l appmeta-*.zip
       - name: Extract release notes from CHANGELOG.md
         run: |
           awk -v version="${GITHUB_REF_NAME#v}" '/^## \[/{f = ($0 ~ "^## \\[" version "\\]")} f' CHANGELOG.md > release-notes.md
@@ -96,3 +112,5 @@ jobs:
         with:
           name: Version ${{ github.ref_name }}
           body_path: release-notes.md
+          files: appmeta-*.zip
+          fail_on_unmatched_files: true
